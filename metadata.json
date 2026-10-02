@@ -1,0 +1,6 @@
+{
+  "name": "TradeMitra AI - Personal Trading Assistant & Journal",
+  "description": "Local-first AI trading assistant for Indian markets (Cash, Nifty 50, Bank Nifty) featuring strategy rules, paper trading, risk controls, and Gemini Thinking analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
