@@ -13,6 +13,8 @@ import {
   TrendingDown,
   Layers,
   ArrowRight,
+  Globe,
+  Search,
 } from 'lucide-react';
 
 interface SetupDetailProps {
@@ -37,6 +39,35 @@ export const SetupDetail: React.FC<SetupDetailProps> = ({
   const [modelUsed, setModelUsed] = useState<string>('gemini-3.1-pro-preview');
   const [thinkingMode, setThinkingMode] = useState<'HIGH' | 'STANDARD'>('HIGH');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Search Grounding states (gemini-3.5-flash with googleSearch tool)
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchGroundedNews, setSearchGroundedNews] = useState<string | null>(null);
+  const [searchQueries, setSearchQueries] = useState<string[]>([]);
+
+  const handleFetchSearchNews = async () => {
+    if (!setup) return;
+    setSearchLoading(true);
+    try {
+      const res = await fetch('/api/ai/live-market-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol: setup.instrument,
+          query: `What are the latest live macro events, earnings, corporate news, and sentiment affecting ${setup.instrument} in Indian stock market today?`,
+        }),
+      });
+      const data = await res.json();
+      if (data.news) {
+        setSearchGroundedNews(data.news);
+        setSearchQueries(data.searchQueries || []);
+      }
+    } catch (e: any) {
+      console.error('Failed to fetch search news:', e);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
 
   const handleRunDeepAnalysis = async (queryText?: string) => {
     if (!setup) return;
@@ -138,13 +169,43 @@ export const SetupDetail: React.FC<SetupDetailProps> = ({
 
           <button
             onClick={() => onExecutePaperTrade(setup)}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-3.5 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition"
+            disabled={setup.setupStatus === 'Invalidated' || setup.setupStatus === 'Blocked' || setup.setupStatus === 'Expired'}
+            className={`font-semibold text-xs px-3.5 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition ${
+              setup.setupStatus === 'Invalidated' || setup.setupStatus === 'Blocked' || setup.setupStatus === 'Expired'
+                ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-750'
+                : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+            }`}
+            title={
+              setup.setupStatus === 'Invalidated' || setup.setupStatus === 'Blocked'
+                ? `Cannot execute: Setup is ${setup.setupStatus}`
+                : 'Execute paper trade through Central Risk Gate'
+            }
           >
-            <span>Execute Paper Trade</span>
+            <span>
+              {setup.setupStatus === 'Invalidated' || setup.setupStatus === 'Blocked'
+                ? `${setup.setupStatus} (Blocked)`
+                : 'Execute Paper Trade'}
+            </span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
+
+      {/* Invalidation Alert Banner if setup is Invalidated or Blocked */}
+      {(setup.setupStatus === 'Invalidated' || setup.setupStatus === 'Blocked') && (
+        <div className="bg-rose-950/40 border border-rose-800 text-rose-300 p-3 rounded-xl flex items-center gap-2.5 text-xs font-mono">
+          <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0" />
+          <div>
+            <strong className="block font-bold">
+              EXECUTION FORBIDDEN BY RISK ENGINE ({setup.setupStatus.toUpperCase()} SETUP)
+            </strong>
+            <span className="text-[11px] text-rose-200/90 font-sans">
+              Is setup ki invalidation condition trigger ho chuki hai. Central Risk Gate is setup ka paper order create nahi hone dega.
+            </span>
+          </div>
+        </div>
+      )}
+
 
       {/* Main Grid: Technical Confluence on Left + Gemini High Thinking Panel on Right */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -204,6 +265,64 @@ export const SetupDetail: React.FC<SetupDetailProps> = ({
                   <li key={i}>{reason}</li>
                 ))}
               </ul>
+            </div>
+
+            {/* Google Search Grounded News & Events (gemini-3.5-flash with googleSearch tool) */}
+            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white font-mono flex items-center gap-1.5 text-[11px]">
+                  <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Search Grounded News ({setup.instrument})</span>
+                </span>
+                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">
+                  gemini-3.5-flash
+                </span>
+              </div>
+
+              {!searchGroundedNews && !searchLoading && (
+                <div className="space-y-2">
+                  <p className="text-[11px] text-slate-400 font-sans">
+                    Fetch real-world Google Search grounded breaking news, earnings dates, and RBI/macro sentiment.
+                  </p>
+                  <button
+                    onClick={handleFetchSearchNews}
+                    className="w-full bg-cyan-950/60 hover:bg-cyan-900/70 text-cyan-300 border border-cyan-700/50 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+                  >
+                    <Search className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Run Google Search Grounding</span>
+                  </button>
+                </div>
+              )}
+
+              {searchLoading && (
+                <div className="flex items-center justify-center py-4 space-x-2 text-cyan-300 text-xs">
+                  <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
+                  <span>Grounding latest Google Search data for {setup.instrument}...</span>
+                </div>
+              )}
+
+              {searchGroundedNews && !searchLoading && (
+                <div className="space-y-2">
+                  {searchQueries.length > 0 && (
+                    <div className="flex flex-wrap gap-1 text-[9px] font-mono text-cyan-400">
+                      {searchQueries.map((q, idx) => (
+                        <span key={idx} className="bg-cyan-950/80 px-1.5 py-0.5 rounded border border-cyan-800">
+                          🔍 {q}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 text-[11px] font-mono text-slate-200 whitespace-pre-line leading-relaxed max-h-48 overflow-y-auto no-scrollbar">
+                    {searchGroundedNews}
+                  </div>
+                  <button
+                    onClick={handleFetchSearchNews}
+                    className="text-[10px] text-cyan-400 hover:text-cyan-300 underline font-mono"
+                  >
+                    Refresh Search Grounding
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

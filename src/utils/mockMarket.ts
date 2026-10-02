@@ -1,4 +1,5 @@
 import { Instrument, SetupCard, StrategyRule, PaperPosition, JournalEntry, RiskSettings, Candle } from '../types/trading';
+import { calculateRobustPositionSize } from './riskEngine';
 
 export const INITIAL_RISK_SETTINGS: RiskSettings = {
   accountCapital: 200000, // ₹2,00,000 Paper Capital
@@ -94,24 +95,24 @@ export const INITIAL_SETUPS: SetupCard[] = [
     timeframe: '15m',
     direction: 'LONG',
     setupStatus: 'Confirmed',
-    entryZone: '₹2,935.00 - ₹2,942.00',
-    entryPrice: 2940.0,
-    stopLoss: 2920.0, // Risk ₹20/share
-    target1: 2980.0, // 1:2 R:R (+₹40)
-    target2: 3010.0, // 1:3.5 R:R (+₹70)
-    invalidation: 'Any 15m candle close below ₹2,918.00 (below swing low and 50 EMA)',
+    entryZone: '₹1,165.00 - ₹1,168.00',
+    entryPrice: 1167.5,
+    stopLoss: 1156.0, // Risk ₹11.5/share
+    target1: 1190.5, // 1:2 R:R (+₹23.0)
+    target2: 1207.5, // 1:3.5 R:R (+₹40.0)
+    invalidation: 'Any 15m candle close below ₹1,154.00 (below swing low and 50 EMA)',
     potentialRiskReward: '1:2.0 (T1) / 1:3.5 (T2)',
     matchedRules: [
-      '15m price above 50 EMA (2912.5)',
-      'Clean pullback into 20 EMA (2938.0) and VWAP (2936.5)',
-      'Bullish pin bar rejection from 2932 support with 1.4x volume',
-      'RSI bouncing upward from 46 level',
+      '15m price above 50 EMA (1,155.2)',
+      'Clean pullback into 20 EMA (1,166.0) and VWAP (1,165.8)',
+      'Bullish pin bar rejection from 1,164 support with 1.4x volume',
+      'RSI bouncing upward from 48 level',
     ],
     unmetConditions: [],
-    evidence: 'High confluence of VWAP support, rising 20 EMA, and strong order block rejection in energy sector.',
+    evidence: 'High confluence of VWAP support, rising 20 EMA, and strong order block rejection.',
     reasonsMayFail: [
-      'Nifty 50 facing resistance at 24,900 round number',
-      'Brent crude spike could cause short-term pressure',
+      'Nifty 50 facing resistance near 22,500 round level',
+      'Brent crude volatility could cause short-term pressure',
     ],
     dataSource: 'Free NSE Feed · 15m Delay / Live Sim',
     timestamp: 'Today, 11:15 IST',
@@ -130,25 +131,25 @@ export const INITIAL_SETUPS: SetupCard[] = [
     timeframe: '15m',
     direction: 'LONG',
     setupStatus: 'Needs confirmation',
-    entryZone: '24,820.00 - 24,845.00',
-    entryPrice: 24840.0,
-    stopLoss: 24780.0, // Risk 60 pts
-    target1: 24960.0, // Reward 120 pts (1:2)
-    target2: 25050.0,
-    invalidation: 'Breakdown below 24,770 with sustained selling volume',
+    entryZone: '22,400.00 - 22,425.00',
+    entryPrice: 22420.0,
+    stopLoss: 22360.0, // Risk 60 pts
+    target1: 22540.0, // Reward 120 pts (1:2)
+    target2: 22630.0,
+    invalidation: 'Breakdown below 22,350 with sustained selling volume',
     potentialRiskReward: '1:2.0',
     matchedRules: [
-      'Index in primary bullish structure on 1D timeframe',
-      'Pullback to key previous resistance-turned-support at 24,820',
+      'Index in primary bullish structure on daily timeframe',
+      'Pullback to key previous resistance-turned-support at 22,400',
     ],
     unmetConditions: [
-      'Awaiting bullish confirmation candle close above 24,850',
-      'Bank Nifty lagging (HDFC Bank consolidating)',
+      'Awaiting bullish confirmation candle close above 22,430',
+      'Bank Nifty lagging near 54,400 resistance',
     ],
-    evidence: 'Approaching high volume node; heavy put writing at 24,800 strike.',
+    evidence: 'Approaching high volume node; heavy put writing at 22,400 strike.',
     reasonsMayFail: [
       'Global cues weak (US futures -0.3%)',
-      'Heavy call resistance built up at 25,000 round number',
+      'Heavy call resistance built up at 22,500 round number',
     ],
     dataSource: 'Free NSE Feed · 15m Delay / Live Sim',
     timestamp: 'Today, 10:45 IST',
@@ -160,23 +161,23 @@ export const INITIAL_SETUPS: SetupCard[] = [
     newsRisk: 'US CPI data expected tonight at 18:00 IST.',
   },
   {
-    id: 'setup-tatamotors-03',
-    instrument: 'TATAMOTORS',
+    id: 'setup-icici-03',
+    instrument: 'ICICIBANK',
     strategyName: 'Daily Range Breakout with Volume Surge',
     strategyVersion: 'v1.3-EXPERIMENTAL',
     timeframe: '1D',
     direction: 'LONG',
     setupStatus: 'Candidate',
-    entryZone: '₹982.00 - ₹986.00',
-    entryPrice: 984.0,
-    stopLoss: 960.0, // Risk ₹24
-    target1: 1032.0, // Reward ₹48 (1:2)
-    target2: 1060.0,
-    invalidation: 'Daily close back below ₹958.00 consolidation floor',
+    entryZone: '₹1,308.00 - ₹1,312.00',
+    entryPrice: 1310.0,
+    stopLoss: 1290.0, // Risk ₹20
+    target1: 1350.0, // Reward ₹40 (1:2)
+    target2: 1380.0,
+    invalidation: 'Daily close back below ₹1,288.00 consolidation floor',
     potentialRiskReward: '1:2.0',
-    matchedRules: ['Consolidated for 8 days in 960-980 range', 'Auto index in top quartile momentum'],
+    matchedRules: ['Consolidated for 8 days in 1,290-1,310 range', 'Bank Nifty holding 54,400'],
     unmetConditions: ['Daily candle volume must exceed 1.8x average at 15:30 close'],
-    evidence: 'Monthly sales numbers positive; Jaguar Land Rover margins expanding.',
+    evidence: 'Private banking credit growth strong; loan book quality stable.',
     reasonsMayFail: ['Experimental strategy with small historical sample (N=19)'],
     dataSource: 'Free NSE Feed · 15m Delay / Live Sim',
     timestamp: 'Today, 09:45 IST',
@@ -192,18 +193,18 @@ export const INITIAL_SETUPS: SetupCard[] = [
 export const INITIAL_PAPER_POSITIONS: PaperPosition[] = [
   {
     id: 'pos-1',
-    instrument: 'HDFCBANK',
+    instrument: 'RELIANCE',
     direction: 'LONG',
-    entryPrice: 1675.0,
-    quantity: 100, // ₹1,67,500 position, risk = ₹15 * 100 = ₹1,500 (within ₹2,000 max risk)
-    stopLoss: 1660.0,
-    target1: 1705.0,
-    target2: 1725.0,
+    entryPrice: 1167.5,
+    quantity: 100, // ₹1,16,750 position, risk = ₹11.5 * 100 = ₹1,150 (within ₹2,000 max risk)
+    stopLoss: 1156.0,
+    target1: 1190.5,
+    target2: 1207.5,
     openedAt: '2026-10-02 09:45 IST',
     status: 'OPEN',
-    currentLtp: 1682.4,
-    unrealizedPnL: 740.0, // +₹740 (+0.44%)
-    feesAndSlippage: 55.0,
+    currentLtp: 1168.25,
+    unrealizedPnL: 75.0, // +₹75.00 (MTM)
+    feesAndSlippage: 35.0,
     strategyVersion: 'v1.2-APPROVED',
   },
 ];
@@ -284,27 +285,31 @@ export const INITIAL_JOURNAL_ENTRIES: JournalEntry[] = [
   },
 ];
 
-// Position Sizing calculator adhering to approved risk limits
+// Position Sizing calculator strictly adhering to approved risk limits & capital affordability
 export function calculatePositionSize(
   accountCapital: number,
   riskPct: number,
   entry: number,
-  sl: number
-): { quantity: number; riskRupees: number; capitalRequired: number; error?: string } {
-  if (entry <= 0 || sl <= 0 || entry === sl) {
-    return { quantity: 0, riskRupees: 0, capitalRequired: 0, error: 'Invalid Entry or Stop Loss' };
-  }
-
-  const riskPerShare = Math.abs(entry - sl);
-  const maxRiskAmount = (accountCapital * riskPct) / 100;
-  const rawQuantity = Math.floor(maxRiskAmount / riskPerShare);
-  const quantity = Math.max(1, rawQuantity);
-  const riskRupees = Number((quantity * riskPerShare).toFixed(2));
-  const capitalRequired = Number((quantity * entry).toFixed(2));
+  sl: number,
+  tp?: number,
+  direction?: 'LONG' | 'SHORT'
+): { quantity: number; riskRupees: number; capitalRequired: number; error?: string; allowed: boolean } {
+  // Directly delegate to centralized robust sizing engine
+  const res = calculateRobustPositionSize(
+    accountCapital,
+    riskPct,
+    entry,
+    sl,
+    tp,
+    direction
+  );
 
   return {
-    quantity,
-    riskRupees,
-    capitalRequired,
+    quantity: res.quantity,
+    riskRupees: res.riskRupees,
+    capitalRequired: res.capitalRequired,
+    allowed: res.allowed,
+    error: res.rejectReason,
   };
 }
+

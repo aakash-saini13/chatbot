@@ -1,3 +1,6 @@
+import { enforceImmutableRiskLimits } from './riskEngine';
+import { createEncryptedBackup, decryptAndRestoreBackup, DEFAULT_VAULT_PASSPHRASE } from './cryptoBackup';
+
 export interface BackupData {
   version: string;
   exportedAt: string;
@@ -30,7 +33,15 @@ export const StorageService = {
   getItem<T>(key: string, fallback: T): T {
     try {
       const data = localStorage.getItem(key);
-      return data ? JSON.parse(data) : fallback;
+      if (!data) return fallback;
+      const parsed = JSON.parse(data);
+
+      // CRITICAL: Always enforce code-level immutable boundaries if loading risk settings
+      if (key === STORAGE_KEYS.RISK) {
+        return enforceImmutableRiskLimits(parsed) as unknown as T;
+      }
+
+      return parsed;
     } catch (e) {
       console.error(`Error loading ${key} from storage:`, e);
       return fallback;
@@ -39,7 +50,12 @@ export const StorageService = {
 
   setItem<T>(key: string, value: T): void {
     try {
-      localStorage.setItem(key, JSON.stringify(value));
+      let toStore = value;
+      // CRITICAL: Enforce immutable boundary before persisting
+      if (key === STORAGE_KEYS.RISK) {
+        toStore = enforceImmutableRiskLimits(value) as unknown as T;
+      }
+      localStorage.setItem(key, JSON.stringify(toStore));
     } catch (e) {
       console.error(`Error saving ${key} to storage:`, e);
     }
@@ -55,27 +71,21 @@ export const StorageService = {
     return total;
   },
 
-  exportBackup(payload: any): string {
-    const backup: BackupData = {
-      version: '1.0',
-      exportedAt: new Date().toISOString(),
-      user: 'Aakash',
-      data: payload,
-      checksum: btoa(`trademitra-${Date.now()}-${payload.journalEntries?.length || 0}`),
-    };
-    return JSON.stringify(backup, null, 2);
+  /**
+   * Generates a genuinely AES-256-GCM encrypted backup with PBKDF2 key derivation and SHA-256 integrity hash
+   */
+  async exportEncryptedBackup(payload: any, passphrase: string = DEFAULT_VAULT_PASSPHRASE): Promise<string> {
+    return await createEncryptedBackup(payload, passphrase);
   },
 
-  validateAndRestoreBackup(jsonString: string): { success: boolean; data?: any; error?: string } {
-    try {
-      const parsed = JSON.parse(jsonString);
-      if (!parsed.checksum || !parsed.data) {
-        return { success: false, error: 'Corrupt or unrecognized backup format.' };
-      }
-      return { success: true, data: parsed.data };
-    } catch (e: any) {
-      return { success: false, error: e?.message || 'Invalid JSON file.' };
-    }
+  /**
+   * Decrypts AES-256-GCM encrypted backup or verifies SHA-256 signed backup, enforcing immutable limits
+   */
+  async restoreEncryptedBackup(
+    fileContent: string,
+    passphrase: string = DEFAULT_VAULT_PASSPHRASE
+  ): Promise<{ success: boolean; data?: any; error?: string; isEncrypted?: boolean }> {
+    return await decryptAndRestoreBackup(fileContent, passphrase);
   },
 
   KEYS: STORAGE_KEYS,

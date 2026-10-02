@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { PaperPosition, RiskSettings, SetupCard, Instrument } from '../types/trading';
-import { calculatePositionSize } from '../utils/mockMarket';
+import {
+  calculateRobustPositionSize,
+  validateOrderAgainstCentralRiskGate,
+} from '../utils/riskEngine';
 import {
   PlaySquare,
   TrendingUp,
@@ -37,48 +40,73 @@ export const PaperTrading: React.FC<PaperTradingProps> = ({
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState(instruments[0]?.symbol || 'RELIANCE');
   const [direction, setDirection] = useState<'LONG' | 'SHORT'>('LONG');
-  const [entryPrice, setEntryPrice] = useState<number>(instruments[0]?.ltp || 2940);
-  const [stopLoss, setStopLoss] = useState<number>(2920);
-  const [target1, setTarget1] = useState<number>(2980);
+  const [entryPrice, setEntryPrice] = useState<number>(instruments[0]?.ltp || 1167.7);
+  const [stopLoss, setStopLoss] = useState<number>(Number((1167.7 * 0.99).toFixed(1)));
+  const [target1, setTarget1] = useState<number>(Number((1167.7 * 1.02).toFixed(1)));
   const [includeFees, setIncludeFees] = useState(true);
+  const [orderFormError, setOrderFormError] = useState<string | null>(null);
 
-  const isDailyLossBreached = dailyRealizedPnL <= -riskSettings.dailyLossLimitRupees;
+  const openUnrealizedLosses = positions
+    .filter((p) => p.status === 'OPEN' && p.unrealizedPnL < 0)
+    .reduce((acc, p) => acc + p.unrealizedPnL, 0);
+  const dailyTotalPnL = dailyRealizedPnL + openUnrealizedLosses;
+  const isDailyLossBreached = dailyTotalPnL <= -riskSettings.dailyLossLimitRupees;
   const isMaxPositionsReached =
     positions.filter((p) => p.status === 'OPEN').length >= riskSettings.maxOpenPositions;
 
   // Auto calculate sizing based on Approved Hard Risk limit
-  const sizing = calculatePositionSize(
+  const sizing = calculateRobustPositionSize(
     riskSettings.accountCapital,
     riskSettings.maxRiskPerTradePct,
     entryPrice,
-    stopLoss
+    stopLoss,
+    target1,
+    direction
   );
 
   const handleOpenPosition = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isDailyLossBreached) {
-      alert('Order Blocked! Daily Loss Limit (₹5,000) reached. No further trades allowed per approved risk rules.');
+
+    setOrderFormError(null);
+
+    // Centralized Risk Gate Check
+    const validation = validateOrderAgainstCentralRiskGate({
+      accountCapital: riskSettings.accountCapital,
+      riskSettings,
+      currentOpenPositions: positions,
+      dailyRealizedPnL,
+      instrument: selectedSymbol,
+      direction,
+      entryPrice: Number(entryPrice),
+      stopLoss: Number(stopLoss),
+      target1: Number(target1),
+    });
+
+    if (!validation.allowed || !validation.sanitizedQuantity) {
+      setOrderFormError(validation.rejectReason || 'Order Blocked by Risk Gate');
       return;
     }
-    if (isMaxPositionsReached) {
-      alert(`Order Blocked! Maximum ${riskSettings.maxOpenPositions} open positions already active.`);
-      return;
-    }
+
+
+    const qty = validation.sanitizedQuantity;
 
     const newPos: PaperPosition = {
       id: `pos-${Date.now()}`,
       instrument: selectedSymbol,
       direction,
       entryPrice: Number(entryPrice),
-      quantity: sizing.quantity,
+      quantity: qty,
+      originalQuantity: qty,
+      remainingQuantity: qty,
       stopLoss: Number(stopLoss),
       target1: Number(target1),
       openedAt: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) + ' IST',
       status: 'OPEN',
       currentLtp: Number(entryPrice),
       unrealizedPnL: 0,
-      feesAndSlippage: includeFees ? Number((sizing.quantity * entryPrice * 0.0006).toFixed(2)) : 0,
+      feesAndSlippage: includeFees ? Number((qty * entryPrice * 0.0006).toFixed(2)) : 0,
       strategyVersion: 'v1.2-APPROVED',
+      hitT1: false,
     };
 
     onUpdatePositions([newPos, ...positions]);
@@ -117,6 +145,29 @@ export const PaperTrading: React.FC<PaperTradingProps> = ({
 
   const openPositions = positions.filter((p) => p.status === 'OPEN');
   const totalUnrealizedPnL = openPositions.reduce((acc, p) => acc + p.unrealizedPnL, 0);
+
+  const handleResetToLive = () => {
+    const relInst = instruments.find((i) => i.symbol === 'RELIANCE');
+    const relPrice = relInst ? relInst.ltp : 1167.7;
+    const freshPositions: PaperPosition[] = [
+      {
+        id: `pos-${Date.now()}`,
+        instrument: 'RELIANCE',
+        direction: 'LONG',
+        entryPrice: relPrice,
+        quantity: 100,
+        stopLoss: Number((relPrice * 0.99).toFixed(1)),
+        target1: Number((relPrice * 1.02).toFixed(1)),
+        openedAt: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) + ' IST',
+        status: 'OPEN',
+        currentLtp: Number((relPrice + 0.85).toFixed(2)),
+        unrealizedPnL: 85.0,
+        feesAndSlippage: 35.0,
+        strategyVersion: 'v1.2-APPROVED',
+      },
+    ];
+    onUpdatePositions(freshPositions);
+  };
 
   return (
     <div className="space-y-4">
@@ -188,9 +239,18 @@ export const PaperTrading: React.FC<PaperTradingProps> = ({
             <PlaySquare className="w-4 h-4 text-emerald-400" />
             <span>Open Paper Trading Positions ({openPositions.length})</span>
           </h3>
-          <span className="text-[11px] text-slate-400 font-mono">
-            Slippage & STT simulation: Active
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleResetToLive}
+              className="text-[11px] bg-slate-800 hover:bg-slate-700 text-emerald-300 px-2.5 py-1 rounded border border-emerald-500/30 font-mono transition flex items-center gap-1.5"
+              title="Sync position prices to real market prices"
+            >
+              <span>🔄 Sync to Live Market (Reliance ₹1,168)</span>
+            </button>
+            <span className="text-[11px] text-slate-400 font-mono hidden sm:inline">
+              Pure MTM Live P&L
+            </span>
+          </div>
         </div>
 
         {openPositions.length === 0 ? (
@@ -242,11 +302,14 @@ export const PaperTrading: React.FC<PaperTradingProps> = ({
                       <td className="py-3 px-3 text-emerald-400">₹{pos.target1.toFixed(2)}</td>
                       <td className="py-3 px-3">
                         <span
-                          className={`font-bold ${
+                          className={`font-bold block ${
                             isProfitable ? 'text-emerald-400' : 'text-rose-400'
                           }`}
                         >
                           {isProfitable ? '+' : ''}₹{pos.unrealizedPnL.toFixed(2)}
+                        </span>
+                        <span className="text-[9px] text-slate-500 font-mono block">
+                          MTM (Est. Fee ₹{pos.feesAndSlippage.toFixed(0)})
                         </span>
                       </td>
                       <td className="py-3 px-3 text-right space-x-1.5">
@@ -329,7 +392,11 @@ export const PaperTrading: React.FC<PaperTradingProps> = ({
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => setDirection('LONG')}
+                      onClick={() => {
+                        setDirection('LONG');
+                        setStopLoss(Number((entryPrice * 0.99).toFixed(1)));
+                        setTarget1(Number((entryPrice * 1.02).toFixed(1)));
+                      }}
                       className={`p-2 rounded-lg font-bold ${
                         direction === 'LONG'
                           ? 'bg-emerald-600 text-white'
@@ -340,7 +407,11 @@ export const PaperTrading: React.FC<PaperTradingProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setDirection('SHORT')}
+                      onClick={() => {
+                        setDirection('SHORT');
+                        setStopLoss(Number((entryPrice * 1.01).toFixed(1)));
+                        setTarget1(Number((entryPrice * 0.98).toFixed(1)));
+                      }}
                       className={`p-2 rounded-lg font-bold ${
                         direction === 'SHORT'
                           ? 'bg-rose-600 text-white'
@@ -420,7 +491,21 @@ export const PaperTrading: React.FC<PaperTradingProps> = ({
                 <span>Include realistic Indian market fees (STT + Exchange turnover + 0.05% slippage)</span>
               </label>
 
+              {/* Rejection Alert Message */}
+              {orderFormError && (
+                <div className="p-3 bg-rose-950/60 border border-rose-800 text-rose-300 rounded-lg text-xs space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>ORDER BLOCKED BY CENTRAL RISK GATE:</span>
+                  </div>
+                  <div className="text-[11px] font-sans text-rose-200 pl-5">
+                    {orderFormError}
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+
                 <button
                   type="button"
                   onClick={() => setShowOrderModal(false)}

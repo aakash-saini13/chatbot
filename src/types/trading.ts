@@ -111,6 +111,9 @@ export interface PaperPosition {
   rMultiple?: number;
   feesAndSlippage: number;
   strategyVersion: string;
+  hitT1?: boolean;
+  originalQuantity?: number;
+  remainingQuantity?: number;
 }
 
 export interface JournalEntry {

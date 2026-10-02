@@ -235,12 +235,22 @@ export const SetupAlerts: React.FC<SetupAlertsProps> = ({
                       ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-950/40'
                       : setup.setupStatus === 'Needs confirmation'
                       ? 'bg-amber-600 hover:bg-amber-500 text-white'
-                      : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                      : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-750'
                   }`}
+                  title={
+                    setup.setupStatus === 'Invalidated' || setup.setupStatus === 'Blocked'
+                      ? `Execution blocked: Setup is ${setup.setupStatus}`
+                      : 'Execute paper trade through Central Risk Gate'
+                  }
                 >
-                  <span>Paper Trade</span>
+                  <span>
+                    {setup.setupStatus === 'Invalidated' || setup.setupStatus === 'Blocked'
+                      ? `${setup.setupStatus} (Blocked)`
+                      : 'Paper Trade'}
+                  </span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
+
               </div>
             </div>
           );

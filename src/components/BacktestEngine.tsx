@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { StrategyRule } from '../types/trading';
+import { StrategyRule, Instrument } from '../types/trading';
+import { runEmpiricalBacktest, RealBacktestReport } from '../utils/realBacktest';
 import {
   History,
   Play,
@@ -10,60 +11,44 @@ import {
   Layers,
   ArrowRight,
   Sliders,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface BacktestEngineProps {
   strategies: StrategyRule[];
+  instruments: Instrument[];
   language: 'Hinglish' | 'English';
 }
 
 export const BacktestEngine: React.FC<BacktestEngineProps> = ({
   strategies,
+  instruments,
   language,
 }) => {
   const [selectedStrategyId, setSelectedStrategyId] = useState(strategies[0]?.id || '');
   const [selectedSymbol, setSelectedSymbol] = useState('NIFTY 50');
   const [slippagePct, setSlippagePct] = useState(0.05);
-  const [brokeragePerOrder, setBrokeragePerOrder] = useState(20);
   const [inSampleSplit, setInSampleSplit] = useState(70); // 70% In-sample, 30% Out-of-sample
   const [isRunning, setIsRunning] = useState(false);
-  const [hasRun, setHasRun] = useState(false);
-
-  // Simulated Walk-forward Results
-  const [results, setResults] = useState({
-    totalTrades: 68,
-    inSampleTrades: 48,
-    outOfSampleTrades: 20,
-    inSampleWinRate: 58.3,
-    outOfSampleWinRate: 53.0,
-    expectancyR: 0.58,
-    maxDrawdownPct: 4.8,
-    profitFactor: 1.84,
-    netPnLRupees: 38400,
-    overfittingRisk: 'LOW - Stable Out-of-Sample Curve',
+  const [report, setReport] = useState<RealBacktestReport>(() => {
+    const inst = instruments?.find((i) => i.symbol === 'NIFTY 50') || instruments?.[0];
+    const candles = inst ? inst.candles : [];
+    return runEmpiricalBacktest(candles, 0.05, 70, 100000);
   });
+
+  const results = report;
 
   const handleRunBacktest = () => {
     setIsRunning(true);
     setTimeout(() => {
+      const inst = instruments.find((i) => i.symbol === selectedSymbol) || instruments[0];
+      const candles = inst ? inst.candles : [];
+      const res = runEmpiricalBacktest(candles, slippagePct, inSampleSplit, 100000);
+      setReport(res);
       setIsRunning(false);
-      setHasRun(true);
-      // Generate realistic stats based on selected slippage and instrument
-      const feeImpact = slippagePct * 10;
-      setResults({
-        totalTrades: 64,
-        inSampleTrades: 45,
-        outOfSampleTrades: 19,
-        inSampleWinRate: Number((57.5 - feeImpact).toFixed(1)),
-        outOfSampleWinRate: Number((54.0 - feeImpact).toFixed(1)),
-        expectancyR: Number((0.65 - slippagePct * 2).toFixed(2)),
-        maxDrawdownPct: Number((4.5 + slippagePct * 10).toFixed(1)),
-        profitFactor: Number((1.82 - slippagePct).toFixed(2)),
-        netPnLRupees: Math.floor(36000 - slippagePct * 50000),
-        overfittingRisk: 'LOW - Out-of-sample win rate holds within 5% of training sample',
-      });
-    }, 1200);
+    }, 400);
   };
+
 
   return (
     <div className="space-y-4">
@@ -186,8 +171,9 @@ export const BacktestEngine: React.FC<BacktestEngineProps> = ({
               <span>Overfitting & Stability Diagnostic:</span>
             </div>
             <p className="text-slate-300 font-mono text-[11px] leading-relaxed">
-              {results.overfittingRisk}
+              {results.overfittingDiagnostic}
             </p>
+
           </div>
         </div>
 

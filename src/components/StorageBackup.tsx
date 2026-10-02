@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { StorageService } from '../utils/storage';
+import { DEFAULT_VAULT_PASSPHRASE } from '../utils/cryptoBackup';
 import {
   Database,
   Download,
@@ -10,7 +11,10 @@ import {
   HardDrive,
   Shield,
   FileCheck,
-  Trash2,
+  Key,
+  Eye,
+  EyeOff,
+  Cpu,
 } from 'lucide-react';
 
 interface StorageBackupProps {
@@ -26,39 +30,72 @@ export const StorageBackup: React.FC<StorageBackupProps> = ({
 }) => {
   const [askScreenshots, setAskScreenshots] = useState(true);
   const [askSensitiveNotes, setAskSensitiveNotes] = useState(true);
+  const [passphrase, setPassphrase] = useState(DEFAULT_VAULT_PASSPHRASE);
+  const [showPassphrase, setShowPassphrase] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
   const bytesUsed = StorageService.getStorageUsageBytes();
   const kbUsed = (bytesUsed / 1024).toFixed(2);
 
-  const handleExport = () => {
-    const payload = onExportAllData();
-    const jsonStr = StorageService.exportBackup(payload);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `trademitra-backup-${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleExport = async () => {
+    setIsExporting(true);
+    setImportError(null);
+    try {
+      const payload = onExportAllData();
+      const encryptedJson = await StorageService.exportEncryptedBackup(payload, passphrase.trim() || DEFAULT_VAULT_PASSPHRASE);
+      
+      const blob = new Blob([encryptedJson], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `trademitra-aes256-backup-${new Date().toISOString().split('T')[0]}.enc.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setImportStatus('AES-256-GCM Encrypted Backup successfully created and downloaded! Checksum verified.');
+    } catch (err: any) {
+      setImportError(`Export failed: ${err?.message || 'Encryption error'}`);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setIsRestoring(true);
+    setImportStatus(null);
+    setImportError(null);
+
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      const validation = StorageService.validateAndRestoreBackup(text);
-      if (validation.success && validation.data) {
-        onRestoreAllData(validation.data);
-        setImportStatus('Backup restored successfully! All strategies and trades verified.');
-        setImportError(null);
-      } else {
-        setImportError(validation.error || 'Backup verification failed.');
-        setImportStatus(null);
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const result = await StorageService.restoreEncryptedBackup(
+          text,
+          passphrase.trim() || DEFAULT_VAULT_PASSPHRASE
+        );
+
+        if (result.success && result.data) {
+          onRestoreAllData(result.data);
+          setImportStatus(
+            result.isEncrypted
+              ? 'AES-256-GCM Decryption & SHA-256 Integrity Verified! Backup restored safely with code-level immutable boundaries.'
+              : 'Backup restored and verified successfully with code-level immutable boundaries.'
+          );
+          setImportError(null);
+        } else {
+          setImportError(result.error || 'Backup verification failed.');
+          setImportStatus(null);
+        }
+      } catch (err: any) {
+        setImportError(`Restoration error: ${err?.message || 'File processing failed'}`);
+      } finally {
+        setIsRestoring(false);
       }
     };
     reader.readAsText(file);
@@ -71,19 +108,20 @@ export const StorageBackup: React.FC<StorageBackupProps> = ({
         <div>
           <h2 className="text-base font-bold text-white flex items-center gap-2">
             <Database className="w-5 h-5 text-emerald-400" />
-            <span>Persistent Memory, Storage & Backup (FR-11)</span>
+            <span>Persistent Memory, Storage & AES-256 Encrypted Backup (FR-11)</span>
           </h2>
           <p className="text-slate-400 mt-0.5 max-w-2xl font-sans">
-            Local-first storage system. Tumhara data tumhare laptop par safe rehta hai. Backup user ke control me rehta hai.
+            Local-first storage system. Tumhara data tumhare laptop par safe rehta hai. Backup genuinely AES-256-GCM encrypted aur SHA-256 signature ke saath export hota hai.
           </p>
         </div>
 
         <button
           onClick={handleExport}
-          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-2 px-4 rounded-lg flex items-center gap-2 shadow-md transition"
+          disabled={isExporting}
+          className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs py-2 px-4 rounded-lg flex items-center gap-2 shadow-md transition"
         >
-          <Download className="w-4 h-4" />
-          <span>Export Encrypted Backup JSON</span>
+          <Lock className="w-4 h-4" />
+          <span>{isExporting ? 'Encrypting & Exporting...' : 'Export AES-256 Encrypted Backup'}</span>
         </button>
       </div>
 
@@ -94,7 +132,7 @@ export const StorageBackup: React.FC<StorageBackupProps> = ({
           <div className="flex items-center space-x-2 pb-2 border-b border-slate-800">
             <HardDrive className="w-4 h-4 text-emerald-400" />
             <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-              Local Storage Usage & Integrity
+              Local Storage Usage & Cryptographic Verification
             </h3>
           </div>
 
@@ -114,15 +152,57 @@ export const StorageBackup: React.FC<StorageBackupProps> = ({
             </div>
           </div>
 
+          {/* Passphrase Configuration */}
+          <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-2 text-xs">
+            <div className="flex items-center justify-between">
+              <label className="text-slate-300 font-semibold flex items-center gap-1.5 font-mono">
+                <Key className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Vault Encryption Passphrase:</span>
+              </label>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono">
+                PBKDF2 + AES-GCM-256
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type={showPassphrase ? 'text' : 'password'}
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+                placeholder="Enter passphrase for backup encryption"
+                className="flex-1 bg-slate-900 border border-slate-700 text-white text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-cyan-500 font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassphrase(!showPassphrase)}
+                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs"
+                title={showPassphrase ? 'Hide passphrase' : 'Show passphrase'}
+              >
+                {showPassphrase ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500 font-sans">
+              Isi passphrase se file encrypt hogi aur restore karte waqt decrypt hogi.
+            </p>
+          </div>
+
           {/* Restore / Import Section */}
-          <div className="space-y-2 pt-2">
+          <div className="space-y-2 pt-1">
             <span className="text-xs font-bold text-white font-mono block">Restore Backup File:</span>
             <label className="border-2 border-dashed border-slate-800 hover:border-slate-700 bg-slate-950 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer transition">
               <Upload className="w-6 h-6 text-slate-400 mb-1" />
-              <span className="text-xs text-slate-300 font-medium">Select .json backup file to restore</span>
-              <span className="text-[10px] text-slate-500 font-mono mt-0.5">Checksum integrity verification included</span>
-              <input type="file" accept=".json" onChange={handleFileChange} className="hidden" />
+              <span className="text-xs text-slate-300 font-medium">Select .enc.json or .json backup file to restore</span>
+              <span className="text-[10px] text-slate-500 font-mono mt-0.5">
+                Authenticates AES-256 Tag + SHA-256 Checksum + Immutable Limits
+              </span>
+              <input type="file" accept=".json,.enc.json" onChange={handleFileChange} className="hidden" />
             </label>
+
+            {isRestoring && (
+              <div className="p-3 bg-cyan-950/40 border border-cyan-800 text-cyan-300 rounded-lg text-xs flex items-center gap-2">
+                <Cpu className="w-4 h-4 animate-spin text-cyan-400 shrink-0" />
+                <span>Decrypting ciphertext & verifying SHA-256 integrity signature...</span>
+              </div>
+            )}
 
             {importStatus && (
               <div className="p-3 bg-emerald-950/40 border border-emerald-800 text-emerald-300 rounded-lg text-xs flex items-center gap-2">
@@ -184,12 +264,26 @@ export const StorageBackup: React.FC<StorageBackupProps> = ({
               <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 text-[11px] text-slate-400 leading-relaxed font-sans">
                 <strong className="text-amber-300">Local-First Guarantee:</strong> Koi bhi screenshot ya sensitive notes kisi external server par silently upload nahi hote. System Aakash ke local laptop par autonomous operate karta hai.
               </div>
+
+              {/* Cryptographic Assurance card */}
+              <div className="bg-slate-950 p-3 rounded-lg border border-emerald-900/40 text-[11px] text-slate-300 space-y-1.5 font-mono">
+                <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                  <FileCheck className="w-4 h-4" />
+                  <span>Security & Integrity Assurances:</span>
+                </div>
+                <div className="text-[10px] space-y-1 text-slate-400">
+                  <div>• <strong>AES-256-GCM</strong> authenticated encryption via Web Crypto API.</div>
+                  <div>• <strong>PBKDF2</strong> key derivation (100,000 rounds) protects against brute force.</div>
+                  <div>• <strong>SHA-256</strong> checksum ensures single-bit tamper detection.</div>
+                  <div>• <strong>Immutable Risk Boundaries</strong> prevent relaxing risk limits during restore.</div>
+                </div>
+              </div>
             </div>
           </div>
 
           <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/80 flex items-center justify-between text-xs font-mono">
-            <span className="text-slate-400">Current App Session:</span>
-            <span className="text-emerald-400 font-bold">16 GB RAM Optimized Desktop SPA</span>
+            <span className="text-slate-400">Memory Integrity:</span>
+            <span className="text-emerald-400 font-bold">Cryptographically Verified Local Vault</span>
           </div>
         </div>
       </div>
